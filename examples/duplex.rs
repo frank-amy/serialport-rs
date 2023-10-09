@@ -11,39 +11,57 @@
 //! To test this, have a physical or virtual loopback device connected as the
 //! only port in the system.
 
+use serialport::{available_ports, SerialPortInfo, SerialPortType, UsbPortInfo};
 use std::io::Write;
 use std::time::Duration;
 use std::{io, thread};
 
 fn main() {
     // Open the first serialport available.
-    let port_name = &serialport::available_ports().expect("No serial port")[0].port_name;
-    let mut port = serialport::new(port_name, 9600)
-        .open()
-        .expect("Failed to open serial port");
+    let valid_serial = available_ports().expect("No serial port");
 
-    // Clone the port
-    let mut clone = port.try_clone().expect("Failed to clone");
+    for serial in valid_serial {
+        match serial.port_type {
+            SerialPortType::UsbPort(info) => {
+                if info.manufacturer.as_ref().map_or("", String::as_str) == "SEGGER" {
+                    println!("Open: {}", serial.port_name);
 
-    // Send out 4 bytes every second
-    thread::spawn(move || loop {
-        clone
-            .write_all(&[5, 6, 7, 8])
-            .expect("Failed to write to serial port");
-        thread::sleep(Duration::from_millis(1000));
-    });
+                    let mut port = serialport::new(serial.port_name, 115200)
+                        .open()
+                        .expect("Failed to open serial port");
 
-    // Read the four bytes back from the cloned port
-    let mut buffer: [u8; 1] = [0; 1];
-    loop {
-        match port.read(&mut buffer) {
-            Ok(bytes) => {
-                if bytes == 1 {
-                    println!("Received: {:?}", buffer);
+                    // // Clone the port
+                    let mut clone = port.try_clone().expect("Failed to clone");
+
+                    // read SN in each second
+                    thread::spawn(move || loop {
+                        clone
+                            .write(String::from("read SN\r").as_bytes())
+                            .expect("Failed to write to serial port");
+                        thread::sleep(Duration::from_millis(1000));
+                    });
+
+                    // Read the four bytes back from the cloned port
+                    let mut rece_buf: Vec<u8> = vec![0; 1000];
+                    loop {
+                        match port.read(rece_buf.as_mut_slice()) {
+                            Ok(t) => {
+                                let rece_str = String::from_utf8_lossy(&rece_buf[..t]);
+                                if rece_str.ends_with("\n") {
+                                    println!("{}", rece_str);
+                                } else {
+                                    print!("{}", rece_str);
+                                }
+                            }
+                            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => (),
+                            Err(e) => eprintln!("{:?}", e),
+                        }
+                        thread::sleep(Duration::from_millis(2));
+                    }
                 }
             }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => (),
-            Err(e) => eprintln!("{:?}", e),
+
+            __ => {}
         }
     }
 }
