@@ -81,19 +81,34 @@ fn main() {
         "Writing '{}' to {} at {} baud at {}Hz",
         &string, &port_name, &baud_rate, &rate
     );
+    let send_buf = String::from("read SN\r");
+    let mut rece_buf: Vec<u8> = vec![0; 1000];
+
     loop {
-        match port.write(string.as_bytes()) {
+        match port.write(send_buf.as_bytes()) {
             Ok(_) => {
-                print!("{}", &string);
-                std::io::stdout().flush().unwrap();
+                println!("{}", &send_buf);
+                // port.write(&[0x0d]).unwrap();
+                // port.flush().unwrap();
             }
             Err(ref e) if e.kind() == io::ErrorKind::TimedOut => (),
             Err(e) => eprintln!("{:?}", e),
         }
+
+        match port.read(rece_buf.as_mut_slice()) {
+            Ok(t) => {
+                // io::stdout().write_all(&rece_buf[..t]).unwrap()
+                let rece_str = String::from_utf8_lossy(&rece_buf[..t]);
+                println!("{}", rece_str);
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => (),
+            Err(e) => eprintln!("{:?}", e),
+        }
+
         if rate == 0 {
             return;
         }
-        std::thread::sleep(Duration::from_millis((1000.0 / (rate as f32)) as u64));
+        std::thread::sleep(Duration::from_millis((10.0 / (rate as f32)) as u64));
     }
 }
 
